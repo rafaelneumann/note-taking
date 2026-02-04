@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Personal Notes - Single Page</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f6fb;
+      --panel: #ffffff;
+      --text: #1d2330;
+      --muted: #6b7380;
+      --accent: #3f6df6;
+      --shadow: 0 12px 30px rgba(29, 35, 48, 0.1);
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+    }
+
+    main {
+      width: min(960px, 100%);
+      background: var(--panel);
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 24px;
+    }
+
+    header {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 2rem;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .status {
+      font-size: 0.95rem;
+      color: var(--muted);
+    }
+
+    .status strong {
+      color: var(--accent);
+    }
+
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 10px 18px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      background: var(--accent);
+      color: white;
+    }
+
+    button.secondary {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 14px rgba(63, 109, 246, 0.2);
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 360px;
+      border-radius: 16px;
+      border: 1px solid rgba(107, 115, 128, 0.2);
+      padding: 18px;
+      font-size: 1rem;
+      line-height: 1.6;
+      resize: vertical;
+      background: transparent;
+      color: inherit;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px rgba(63, 109, 246, 0.2);
+    }
+
+    .tip {
+      font-size: 0.9rem;
+      color: var(--muted);
+      background: rgba(63, 109, 246, 0.08);
+      padding: 14px 16px;
+      border-radius: 12px;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }
+
+    @media (max-width: 640px) {
+      main {
+        padding: 24px;
+      }
+
+      .controls {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Personal Note Buffer</h1>
+      <p>Write, refresh, and keep your notes right in this single HTML file.</p>
+    </header>
+
+    <section class="controls">
+      <div class="status">
+        Status: <strong id="save-status">Saved</strong>
+        · Last update: <span id="last-updated">—</span>
+      </div>
+      <div class="buttons">
+        <button class="secondary" type="button" id="clear-notes">Clear buffer</button>
+        <button type="button" id="download-html">Download this page</button>
+      </div>
+    </section>
+
+    <label for="note-area" class="visually-hidden"></label>
+    <textarea id="note-area" placeholder="Start typing your notes here..."></textarea>
+
+    <div class="tip">
+      Tip: Your text auto-saves to your browser storage. Use “Download this page” to save the HTML file (with your notes) to your computer.
+    </div>
+  </main>
+
+  <script type="application/json" id="note-data">
+    {
+      "text": "",
+      "updatedAt": null
+    }
+  </script>
+  <script>
+    const noteArea = document.getElementById("note-area");
+    const saveStatus = document.getElementById("save-status");
+    const lastUpdated = document.getElementById("last-updated");
+    const clearButton = document.getElementById("clear-notes");
+    const downloadButton = document.getElementById("download-html");
+    const embeddedDataScript = document.getElementById("note-data");
+
+    const STORAGE_KEY = "personal-note-buffer";
+    let saveTimeout;
+    let noteState = {
+      text: "",
+      updatedAt: null,
+    };
+
+    const formatTimestamp = (date) =>
+      date.toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+    const setStatus = (state) => {
+      saveStatus.textContent = state;
+      saveStatus.style.color = state === "Saved" ? "var(--accent)" : "#cc5a5a";
+    };
+
+    const parseEmbeddedNotes = () => {
+      if (!embeddedDataScript) {
+        return null;
+      }
+      try {
+        return JSON.parse(embeddedDataScript.textContent || "{}");
+      } catch (error) {
+        return null;
+      }
+    };
+
+    const parseLocalNotes = () => {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (!stored) {
+        return null;
+      }
+      try {
+        return JSON.parse(stored);
+      } catch (error) {
+        return null;
+      }
+    };
+
+    const chooseLatestNotes = (embedded, stored) => {
+      if (!embedded && !stored) {
+        return null;
+      }
+      if (!embedded) {
+        return stored;
+      }
+      if (!stored) {
+        return embedded;
+      }
+      const embeddedTime = embedded.updatedAt ? Date.parse(embedded.updatedAt) : 0;
+      const storedTime = stored.updatedAt ? Date.parse(stored.updatedAt) : 0;
+      return storedTime >= embeddedTime ? stored : embedded;
+    };
+
+    const syncStateToUI = () => {
+      noteArea.value = noteState.text || "";
+      if (noteState.updatedAt) {
+        lastUpdated.textContent = formatTimestamp(
+          new Date(noteState.updatedAt)
+        );
+      } else {
+        lastUpdated.textContent = "—";
+      }
+    };
+
+    const persistNotes = () => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(noteState));
+      if (embeddedDataScript) {
+        embeddedDataScript.textContent = JSON.stringify(noteState, null, 2);
+      }
+      if (noteState.updatedAt) {
+        lastUpdated.textContent = formatTimestamp(
+          new Date(noteState.updatedAt)
+        );
+      }
+      setStatus("Saved");
+    };
+
+    const updateNoteState = () => {
+      noteState = {
+        text: noteArea.value,
+        updatedAt: new Date().toISOString(),
+      };
+      persistNotes();
+    };
+
+    const scheduleSave = () => {
+      setStatus("Saving...");
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(updateNoteState, 300);
+    };
+
+    const downloadHTML = () => {
+      const html = document.documentElement.outerHTML;
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "personal-notes.html";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    };
+
+    const loadNotes = () => {
+      const embedded = parseEmbeddedNotes();
+      const stored = parseLocalNotes();
+      const freshest = chooseLatestNotes(embedded, stored);
+      if (freshest) {
+        noteState = {
+          text: freshest.text || "",
+          updatedAt: freshest.updatedAt || null,
+        };
+      }
+      syncStateToUI();
+      if (noteState.updatedAt) {
+        persistNotes();
+      }
+    };
+
+    noteArea.addEventListener("input", scheduleSave);
+    clearButton.addEventListener("click", () => {
+      noteArea.value = "";
+      updateNoteState();
+    });
+    downloadButton.addEventListener("click", downloadHTML);
+
+    loadNotes();
+  </script>
+</body>
+</html>
